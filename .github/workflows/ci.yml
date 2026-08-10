@@ -29,7 +29,10 @@ jobs:
           restore-keys: spm-core-
 
       - name: Run RemediaCore tests
-        run: swift test --package-path RemediaCore
+        # --no-parallel: several tests run real FFmpeg/AVFoundation conversions
+        # concurrently by default, which contends for CPU/memory on shared
+        # runners and produces flaky failures unrelated to the code under test.
+        run: swift test --package-path RemediaCore --no-parallel
 
   unit-tests:
     name: Unit Tests
@@ -128,6 +131,7 @@ jobs:
           set -o pipefail
           xcodebuild test-without-building \
             -project Remedia.xcodeproj \
+            -scheme Remedia \
             -only-testing:RemediaUITests \
             -destination 'platform=macOS' \
             -derivedDataPath DerivedData
