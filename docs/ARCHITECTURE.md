@@ -324,6 +324,16 @@ duplicate-naming convention (REQUIREMENTS §4).
      file into the Xcode test report — verified end-to-end by generating a real
      `.xcresult` and extracting an attachment back out with `xcresulttool`, then
      confirming `file` recognized it as a genuine, valid QuickTime movie.
+- **Integer overflow in SAR-derived display width, found via security review**
+  (as of 2026-08-11) — `probe.c`, `preview_decode.c`, and `sequential_decode.c` each
+  computed a container's display width as `codedWidth * (sar.num/sar.den)` with no
+  bounds check; a crafted or simply corrupt `sample_aspect_ratio` (e.g. a
+  Matroska/WebM `DisplayWidth` tag) could overflow `int` and wrap, desyncing the
+  `malloc`'d BGRA buffer's size from what `sws_scale` is told to write into it —
+  reachable just by dropping the file, since the live preview decodes a frame
+  automatically. Fixed with a shared `cffmpeg_sanitized_display_width` helper
+  (`internal.h`) that falls back to the coded width whenever the scaled value
+  doesn't round-trip into `[1, 16384]`, used at all three call sites.
 - **Remaining, deliberately deferred:** none currently tracked. `FFmpegEngine`/
   `AVFoundationEngine`/`FFmpegDecodePreviewSource`/`AVPlayerPreviewSource` are all
   real and tested against both synthetic and real-world media; UI is wired

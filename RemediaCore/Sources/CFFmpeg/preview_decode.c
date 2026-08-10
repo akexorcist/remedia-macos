@@ -114,10 +114,7 @@ decoded:
     // codecpar's, often left at 0/1 for Matroska/WebM).
     AVRational sar = videoStream->sample_aspect_ratio;
     if (sar.num <= 0 || sar.den <= 0) sar = decoderCtx->sample_aspect_ratio;
-    int displayWidth = decoderCtx->width;
-    if (sar.num > 0 && sar.den > 0 && sar.num != sar.den) {
-        displayWidth = (int)llround(decoderCtx->width * ((double)sar.num / sar.den));
-    }
+    int displayWidth = cffmpeg_sanitized_display_width(decoderCtx->width, sar);
 
     swsCtx = sws_getContext(
         decoderCtx->width, decoderCtx->height, decoderCtx->pix_fmt,

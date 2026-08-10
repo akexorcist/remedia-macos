@@ -13,7 +13,7 @@ final class ConversionResultUITests: XCTestCase {
     private var fixtureURL: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // RemediaUITests/
-            .deletingLastPathComponent() // media-converter/
+            .deletingLastPathComponent() // remedia/
             .appendingPathComponent("RemediaCore/Tests/RemediaCoreTests/Fixtures/sample_video.mp4")
     }
 

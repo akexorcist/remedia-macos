@@ -75,10 +75,7 @@ CFFmpegSequentialDecoder *cffmpeg_open_sequential_decoder(
     AVStream *videoStream = decoder->inputCtx->streams[decoder->videoStreamIndex];
     AVRational sar = videoStream->sample_aspect_ratio;
     if (sar.num <= 0 || sar.den <= 0) sar = decoder->decoderCtx->sample_aspect_ratio;
-    decoder->displayWidth = decoder->decoderCtx->width;
-    if (sar.num > 0 && sar.den > 0 && sar.num != sar.den) {
-        decoder->displayWidth = (int)llround(decoder->decoderCtx->width * ((double)sar.num / sar.den));
-    }
+    decoder->displayWidth = cffmpeg_sanitized_display_width(decoder->decoderCtx->width, sar);
 
     decoder->swsCtx = sws_getContext(
         decoder->decoderCtx->width, decoder->decoderCtx->height, decoder->decoderCtx->pix_fmt,

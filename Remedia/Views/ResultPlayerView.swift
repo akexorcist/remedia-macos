@@ -153,7 +153,6 @@ private struct WebmLoopPlayerView: View {
                 startPlaybackLoop()
             } else {
                 playbackTask?.cancel()
-                playbackTask = nil
             }
         }
         .onDisappear {
@@ -179,14 +178,21 @@ private struct WebmLoopPlayerView: View {
     }
 
     private func startPlaybackLoop() {
-        guard let player, playbackTask == nil else { return }
+        guard let player else { return }
+        guard playbackTask == nil || playbackTask?.isCancelled == true else { return }
         // Guards the UInt64(Double) conversion below against a malformed
         // frameRate from the file's own metadata (also fixed at the source
         // in cffmpeg_probe).
         let safeFrameRate = mediaFile.frameRate.isFinite && mediaFile.frameRate > 0 ? mediaFile.frameRate : 10
         let frameInterval = 1.0 / safeFrameRate
 
+        let previousTask = playbackTask
         playbackTask = Task {
+            // `player` allows only one call in flight at a time; cancelling
+            // the previous task doesn't stop a detached decode already
+            // running, so wait for it to actually finish before reusing it.
+            await previousTask?.value
+
             while !Task.isCancelled {
                 let decoded: CGImage? = await Task.detached {
                     var result = player.nextFrame()

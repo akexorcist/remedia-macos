@@ -1,4 +1,4 @@
-#include "CFFmpeg.h"
+#include "internal.h"
 
 int cffmpeg_probe(const char *inputPath, CFFmpegProbeResult *outResult, char *errorBuffer, int errorBufferSize) {
     if (errorBuffer && errorBufferSize > 0) errorBuffer[0] = '\0';
@@ -56,10 +56,7 @@ int cffmpeg_probe(const char *inputPath, CFFmpegProbeResult *outResult, char *er
     // (often left at 0/1) — hence the fallback order below.
     AVRational sar = videoStream->sample_aspect_ratio;
     if (sar.num <= 0 || sar.den <= 0) sar = videoStream->codecpar->sample_aspect_ratio;
-    int displayWidth = videoStream->codecpar->width;
-    if (sar.num > 0 && sar.den > 0 && sar.num != sar.den) {
-        displayWidth = (int)llround(videoStream->codecpar->width * ((double)sar.num / sar.den));
-    }
+    int displayWidth = cffmpeg_sanitized_display_width(videoStream->codecpar->width, sar);
 
     outResult->duration = duration;
     outResult->width = displayWidth;
