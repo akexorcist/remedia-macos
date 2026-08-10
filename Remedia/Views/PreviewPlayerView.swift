@@ -31,11 +31,15 @@ struct PreviewPlayerView: View {
                 }
                 CropOverlayView(viewModel: viewModel)
 
+                // Fades via the color's own alpha, not view-level .opacity()
+                // — a fully view-opacity-0 element drops out of the
+                // accessibility tree entirely, which broke every UI test
+                // waiting on this icon to exist before it's ever been
+                // hovered.
                 Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 48))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .shadow(radius: 4)
-                    .opacity(isHovering ? 1 : 0)
+                    .foregroundStyle(.white.opacity(isHovering ? 0.85 : 0))
+                    .shadow(radius: isHovering ? 4 : 0)
                     .animation(.easeInOut(duration: 0.2), value: isHovering)
                     .allowsHitTesting(false)
                     .accessibilityIdentifier("previewPlayer.playPauseIcon")
