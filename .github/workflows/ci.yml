@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  core-tests:
+    name: Core Tests
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache SPM packages
+        uses: actions/cache@v4
+        with:
+          path: RemediaCore/.build
+          key: spm-core-${{ hashFiles('RemediaCore/Package.swift') }}
+          restore-keys: spm-core-
+
+      - name: Run RemediaCore tests
+        run: swift test --package-path RemediaCore
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Cache SPM packages
+        uses: actions/cache@v4
+        with:
+          path: .spm
+          key: spm-${{ hashFiles('RemediaCore/Package.swift') }}
+          restore-keys: spm-
+
+      - name: Build app
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Remedia.xcodeproj \
+            -scheme Remedia \
+            -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath .spm \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Remedia.xcodeproj \
+            -scheme Remedia \
+            -only-testing:RemediaTests \
+            -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath .spm \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+  ui-tests:
+    name: UI Tests
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Cache SPM packages
+        uses: actions/cache@v4
+        with:
+          path: .spm
+          key: spm-${{ hashFiles('RemediaCore/Package.swift') }}
+          restore-keys: spm-
+
+      - name: Build app
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Remedia.xcodeproj \
+            -scheme Remedia \
+            -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath .spm \
+            -derivedDataPath DerivedData \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build for UI testing
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project Remedia.xcodeproj \
+            -scheme Remedia \
+            -only-testing:RemediaUITests \
+            -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath .spm \
+            -derivedDataPath DerivedData \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run UI tests
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project Remedia.xcodeproj \
+            -only-testing:RemediaUITests \
+            -destination 'platform=macOS' \
+            -derivedDataPath DerivedData
