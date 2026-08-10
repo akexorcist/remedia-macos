@@ -11,6 +11,13 @@ struct DropZoneView: View {
         UTType(filenameExtension: $0)
     }
 
+    /// This view reappears every time a Start Over/Reset returns to the drop
+    /// zone, and its `.task` would otherwise re-autoload the same fixture on
+    /// each reappearance — masking the drop-zone screen from a UI test
+    /// that's specifically checking it's reached. One-shot per process is
+    /// enough: every UI test that uses this hook only needs it once.
+    private static var hasAutoloadedForUITests = false
+
     private var errorMessage: String? {
         if case .invalidFile(let message) = viewModel.phase {
             return message
@@ -59,7 +66,9 @@ struct DropZoneView: View {
         // the editor screen by launching with the fixture path in this
         // environment variable instead. No-op unless a UI test sets it.
         .task {
+            guard !Self.hasAutoloadedForUITests else { return }
             if let uiTestFile = ProcessInfo.processInfo.environment["UI_TEST_AUTOLOAD_MEDIA_PATH"] {
+                Self.hasAutoloadedForUITests = true
                 await viewModel.handleDrop(url: URL(fileURLWithPath: uiTestFile))
             }
         }

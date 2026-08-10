@@ -78,4 +78,49 @@ final class ConversionResultUITests: XCTestCase {
             .completed, "icon didn't fade out after the cursor left the result preview"
         )
     }
+
+    @MainActor
+    func testBackButtonReturnsToEditorScreen() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_AUTOLOAD_MEDIA_PATH"] = fixtureURL.path
+        app.launch()
+
+        let convertButton = app.buttons["Convert"]
+        XCTAssertTrue(convertButton.waitForExistence(timeout: 15))
+        convertButton.click()
+
+        let durationLabel = app.descendants(matching: .any)
+            .matching(identifier: "completedScreen.duration").firstMatch
+        XCTAssertTrue(durationLabel.waitForExistence(timeout: 30), "conversion didn't reach the completed screen in time")
+
+        app.buttons["Back"].click()
+
+        XCTAssertTrue(convertButton.waitForExistence(timeout: 5), "Back didn't return to the editor screen")
+        XCTAssertFalse(durationLabel.exists, "completed screen's result info should be gone after Back")
+    }
+
+    @MainActor
+    func testStartOverButtonReturnsToDropZoneScreen() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_AUTOLOAD_MEDIA_PATH"] = fixtureURL.path
+        app.launch()
+
+        let convertButton = app.buttons["Convert"]
+        XCTAssertTrue(convertButton.waitForExistence(timeout: 15))
+        convertButton.click()
+
+        let durationLabel = app.descendants(matching: .any)
+            .matching(identifier: "completedScreen.duration").firstMatch
+        XCTAssertTrue(durationLabel.waitForExistence(timeout: 30), "conversion didn't reach the completed screen in time")
+
+        app.buttons["Start Over"].click()
+
+        // DropZoneView's autoload hook is one-shot per process (see its own
+        // comment), so unlike the very first launch it won't re-fire and
+        // race past this screen here.
+        let dropZone = app.descendants(matching: .any)
+            .matching(identifier: "dropZone.tapArea").firstMatch
+        XCTAssertTrue(dropZone.waitForExistence(timeout: 5), "Start Over didn't return to the drop-zone screen")
+        XCTAssertFalse(convertButton.exists, "editor screen's Convert button should be gone after Start Over")
+    }
 }
