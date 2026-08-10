@@ -1,0 +1,77 @@
+name: Remedia
+options:
+  bundleIdPrefix: com.akexorcist
+  deploymentTarget:
+    macOS: "26.0"
+
+packages:
+  RemediaCore:
+    path: RemediaCore
+
+targets:
+  Remedia:
+    type: application
+    platform: macOS
+    sources:
+      - path: Remedia
+    settings:
+      base:
+        PRODUCT_NAME: Remedia
+        PRODUCT_BUNDLE_IDENTIFIER: com.akexorcist.Remedia
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ARCHS: arm64
+        ONLY_ACTIVE_ARCH: true
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: true
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - package: RemediaCore
+
+  RemediaUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: RemediaUITests
+    settings:
+      base:
+        PRODUCT_NAME: RemediaUITests
+        PRODUCT_BUNDLE_IDENTIFIER: com.akexorcist.RemediaUITests
+        GENERATE_INFOPLIST_FILE: true
+        SWIFT_VERSION: "6.0"
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - target: Remedia
+
+  RemediaTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: RemediaTests
+    settings:
+      base:
+        PRODUCT_NAME: RemediaTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.akexorcist.RemediaTests
+        GENERATE_INFOPLIST_FILE: true
+        SWIFT_VERSION: "6.0"
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - target: Remedia
+
+schemes:
+  Remedia:
+    build:
+      targets:
+        Remedia: all
+        RemediaUITests: all
+        RemediaTests: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - RemediaUITests
+        - RemediaTests

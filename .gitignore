@@ -1,0 +1,17 @@
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+DerivedData/
+
+# xcodegen — regenerated from project.yml, don't track the generated project
+Remedia.xcodeproj/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# FFmpeg build scratch space (Scripts/build-ffmpeg.sh)
+.ffmpeg-build/
+
+# macOS
+.DS_Store

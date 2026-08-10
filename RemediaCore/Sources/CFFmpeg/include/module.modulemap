@@ -1,0 +1,4 @@
+module CFFmpeg {
+    header "CFFmpeg.h"
+    export *
+}
