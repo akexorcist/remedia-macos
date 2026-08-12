@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # workflow_dispatch can run on any branch, not just a tag — this repo's
+      # tags are bare versions (2.3.0, not v2.3.0), so require that shape here.
+      - name: Validate tag format
+        run: |
+          if [[ ! "${{ github.ref_name }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Ref '${{ github.ref_name }}' does not match the required x.y.z tag format"
+            exit 1
+          fi
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Cache SPM packages
+        uses: actions/cache@v4
+        with:
+          path: .spm
+          key: spm-${{ hashFiles('RemediaCore/Package.swift') }}
+          restore-keys: spm-
+
+      - name: Build Release
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Remedia.xcodeproj \
+            -scheme Remedia \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -clonedSourcePackagesDirPath .spm \
+            -derivedDataPath DerivedData
+
+      # Ad-hoc signed (CODE_SIGN_STYLE: Automatic, no team configured) —
+      # runs fine locally, but Gatekeeper blocks it once downloaded/
+      # quarantined until the user approves it once via right-click Open
+      # or System Settings > Privacy & Security. No Apple Developer
+      # account here for real notarization.
+      - name: Zip the app
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cd DerivedData/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent Remedia.app "$GITHUB_WORKSPACE/Remedia-$RELEASE_TAG.zip"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            "Remedia-$RELEASE_TAG.zip" \
+            --title "$RELEASE_TAG" \
+            --generate-notes
