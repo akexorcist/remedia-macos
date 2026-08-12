@@ -393,7 +393,11 @@ public struct AVFoundationEngine: ConversionEngine {
     /// "high quality" H.264/HEVC delivery bitrates (~0.08...0.15 bpp), and
     /// could produce an output larger than an already-reasonably-encoded
     /// source even at a middling quality setting.
-    private static func videoEncoderSettings(
+    /// `internal`, not `private` — lets `RemediaCoreTests` exercise the
+    /// bits-per-pixel formula directly (a real encode's actual output size
+    /// also depends on content complexity, which isn't what a regression
+    /// test for *this* calibration bug should be sensitive to).
+    static func videoEncoderSettings(
         outputSize: CGSize, quality: Double, frameRate: Float, codec: VideoCodec
     ) -> [String: Any] {
         let normalizedQuality = (max(min(quality, 100), 50) - 50) / 50.0

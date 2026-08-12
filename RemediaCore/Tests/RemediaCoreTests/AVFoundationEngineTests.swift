@@ -2,7 +2,41 @@ import Testing
 import Foundation
 import CoreGraphics
 import CoreMedia
+import AVFoundation
 @testable import RemediaCore
+
+/// Regression: the bits-per-pixel heuristic used to be calibrated against
+/// the full 0...100 quality range, but the UI's quality slider only ever
+/// reaches 50...100 (`VideoSettings.quality`) — so every reachable setting
+/// actually landed at the *top* 40% of the intended bpp range (0.2...0.35),
+/// well past real-world "high quality" delivery bitrates. A 97MB 1080p60
+/// source re-encoded at 85% quality came out at 200MB. Tests the formula
+/// directly (not a real encode) since actual output size also depends on
+/// content complexity, which isn't what this regression is about.
+@Test func avFoundationEngineVideoBitrateStaysWithinRealWorldRangeAcrossQualityRange() {
+    let outputSize = CGSize(width: 1920, height: 1080)
+    let frameRate: Float = 60
+
+    func bitsPerPixel(atQuality quality: Double) -> Double {
+        let settings = AVFoundationEngine.videoEncoderSettings(
+            outputSize: outputSize, quality: quality, frameRate: frameRate, codec: .h264
+        )
+        let compressionProperties = settings[AVVideoCompressionPropertiesKey] as! [String: Any]
+        let bitRate = compressionProperties[AVVideoAverageBitRateKey] as! Int
+        return Double(bitRate) / (outputSize.width * outputSize.height * Double(frameRate))
+    }
+
+    // The old formula's mismatch meant quality=50 (the *lowest* reachable
+    // value) still produced ~0.2 bpp — this is the exact value that
+    // regressed before, so it's asserted precisely rather than just
+    // checking it's "low-ish".
+    #expect(abs(bitsPerPixel(atQuality: 50) - 0.04) < 0.005)
+    #expect(abs(bitsPerPixel(atQuality: 100) - 0.16) < 0.005)
+
+    // Below the UI's actual minimum — clamps rather than extrapolating
+    // into an even-lower bpp than the calibrated floor.
+    #expect(abs(bitsPerPixel(atQuality: 0) - 0.04) < 0.005)
+}
 
 @Test func avFoundationEngineRespectsExplicitVideoCodecChoice() async throws {
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
