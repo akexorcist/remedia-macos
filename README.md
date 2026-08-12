@@ -18,6 +18,11 @@ A native macOS app for converting media files between `.mp4`, `.mov`, `.webm`, a
 
 I needed a simple, offline macOS app to quickly convert my everyday media files without opening a web browser.
 
+## Installation
+
+1. Download the `.dmg` from [Releases](https://github.com/akexorcist/remedia-macos/releases), open it, and drag Remedia to Applications.
+2. macOS blocks the app on first launch since it's unsigned. Open **System Settings → Privacy & Security**, scroll to the Remedia warning, and click **Open Anyway**.
+
 ## Requirements
 
 - macOS (Apple Silicon)
