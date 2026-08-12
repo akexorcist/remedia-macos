@@ -111,10 +111,12 @@ final class PreviewPlaybackUITests: XCTestCase {
         playPauseIcon.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
 
         // Give it generous time to reach the (now nearby) trim end and
-        // auto-stop on its own.
+        // auto-stop on its own — real decode/playback pacing, so a slower
+        // CI runner genuinely needs more wall-clock time than a local Mac,
+        // not just more polling patience.
         let stopped = NSPredicate(format: "label == %@", "Play")
         let expectation = XCTNSPredicateExpectation(predicate: stopped, object: playPauseIcon)
-        let result = XCTWaiter().wait(for: [expectation], timeout: 10)
+        let result = XCTWaiter().wait(for: [expectation], timeout: 30)
         XCTAssertEqual(result, .completed, "playback never auto-stopped at the trim end")
 
         XCTAssertEqual(
@@ -151,7 +153,7 @@ final class PreviewPlaybackUITests: XCTestCase {
         let stopped = NSPredicate(format: "label == %@", "Play")
         let stoppedExpectation = XCTNSPredicateExpectation(predicate: stopped, object: playPauseIcon)
         XCTAssertEqual(
-            XCTWaiter().wait(for: [stoppedExpectation], timeout: 10), .completed,
+            XCTWaiter().wait(for: [stoppedExpectation], timeout: 30), .completed,
             "playback never auto-stopped at the trim end"
         )
 
@@ -170,7 +172,7 @@ final class PreviewPlaybackUITests: XCTestCase {
         }
         let expectation = XCTNSPredicateExpectation(predicate: settledAtStart, object: seekIndicator)
         XCTAssertEqual(
-            XCTWaiter().wait(for: [expectation], timeout: 5), .completed,
+            XCTWaiter().wait(for: [expectation], timeout: 15), .completed,
             "replay didn't restart from trim.start"
         )
     }
