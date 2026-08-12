@@ -58,12 +58,16 @@ jobs:
       # quarantined until the user approves it once via right-click Open
       # or System Settings > Privacy & Security. No Apple Developer
       # account here for real notarization.
-      - name: Zip the app
+      - name: Build the .dmg
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          cd DerivedData/Build/Products/Release
-          ditto -c -k --sequesterRsrc --keepParent Remedia.app "$GITHUB_WORKSPACE/Remedia-$RELEASE_TAG.zip"
+          staging="$RUNNER_TEMP/dmg-staging"
+          mkdir -p "$staging"
+          ditto DerivedData/Build/Products/Release/Remedia.app "$staging/Remedia.app"
+          ln -s /Applications "$staging/Applications"
+          hdiutil create -volname Remedia -srcfolder "$staging" -ov -format UDZO \
+            "$GITHUB_WORKSPACE/Remedia-$RELEASE_TAG.dmg"
 
       - name: Create GitHub Release
         env:
@@ -71,6 +75,6 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           gh release create "$RELEASE_TAG" \
-            "Remedia-$RELEASE_TAG.zip" \
+            "Remedia-$RELEASE_TAG.dmg" \
             --title "$RELEASE_TAG" \
             --generate-notes
