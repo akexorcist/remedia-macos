@@ -47,7 +47,7 @@ jobs:
           set -o pipefail
           xcodebuild build \
             -project Remedia.xcodeproj \
-            -scheme Remedia \
+            -scheme Remedia-Release \
             -configuration Release \
             -destination 'platform=macOS' \
             -clonedSourcePackagesDirPath .spm \

@@ -85,3 +85,12 @@ schemes:
       targets:
         - RemediaUITests
         - RemediaTests
+
+  # Excludes the test targets so Xcode doesn't auto-embed their .xctest
+  # bundles into the app this gets zipped and published from.
+  Remedia-Release:
+    build:
+      targets:
+        Remedia: all
+    run:
+      config: Release
