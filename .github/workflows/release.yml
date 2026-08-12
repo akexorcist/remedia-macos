@@ -42,7 +42,14 @@ jobs:
           key: spm-${{ hashFiles('RemediaCore/Package.swift') }}
           restore-keys: spm-
 
+      # Overridden here rather than in project.yml, which keeps its own
+      # sane local-dev defaults: MARKETING_VERSION (the in-app version) from
+      # the tag, CURRENT_PROJECT_VERSION (the internal build number) from
+      # this workflow's own auto-incrementing run number.
       - name: Build Release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -o pipefail
           xcodebuild build \
@@ -51,7 +58,9 @@ jobs:
             -configuration Release \
             -destination 'platform=macOS' \
             -clonedSourcePackagesDirPath .spm \
-            -derivedDataPath DerivedData
+            -derivedDataPath DerivedData \
+            MARKETING_VERSION="$RELEASE_TAG" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
 
       # Ad-hoc signed (CODE_SIGN_STYLE: Automatic, no team configured) —
       # runs fine locally, but Gatekeeper blocks it once downloaded/
