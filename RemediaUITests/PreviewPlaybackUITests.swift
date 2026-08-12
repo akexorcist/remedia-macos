@@ -21,8 +21,25 @@ final class PreviewPlaybackUITests: XCTestCase {
     private func launchAtEditorScreen() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["UI_TEST_AUTOLOAD_MEDIA_PATH"] = fixtureURL.path
+        // Without this, a force-terminated app's window state gets saved
+        // and restored on the next launch — across enough UI tests in one
+        // run, stale windows pile up until XCUIElement queries start
+        // matching several duplicate "Remedia" windows at once.
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
         app.launch()
         return app
+    }
+
+    /// A tap's label change reaches the accessibility tree a beat after
+    /// `.click()` returns — asserting immediately raced the render on a
+    /// loaded machine. Waits instead of reading `.label` synchronously.
+    private func waitForLabel(_ element: XCUIElement, toEqual expected: String, timeout: TimeInterval = 5) {
+        let predicate = NSPredicate(format: "label == %@", expected)
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [expectation], timeout: timeout), .completed,
+            "expected label \"\(expected)\", got \"\(element.label)\""
+        )
     }
 
     @MainActor
@@ -43,7 +60,7 @@ final class PreviewPlaybackUITests: XCTestCase {
         // area behind it.
         playPauseIcon.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
 
-        XCTAssertEqual(playPauseIcon.label, "Pause")
+        waitForLabel(playPauseIcon, toEqual: "Pause")
         let seekXWhilePlaying1 = seekIndicator.frame.midX
         Thread.sleep(forTimeInterval: 1.0)
         let seekXWhilePlaying2 = seekIndicator.frame.midX
@@ -54,7 +71,7 @@ final class PreviewPlaybackUITests: XCTestCase {
 
         // Pause and confirm it stops advancing.
         playPauseIcon.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-        XCTAssertEqual(playPauseIcon.label, "Play")
+        waitForLabel(playPauseIcon, toEqual: "Play")
         let seekXAfterPause1 = seekIndicator.frame.midX
         Thread.sleep(forTimeInterval: 0.5)
         let seekXAfterPause2 = seekIndicator.frame.midX
@@ -86,8 +103,12 @@ final class PreviewPlaybackUITests: XCTestCase {
         )
         let trimmedEndX = endHandle.frame.midX
 
+        // Trimmed this close, playback can auto-stop before .click() even
+        // returns (it blocks until the app reports idle, and the playback
+        // loop keeps it busy the whole time) — so "Pause" may never be
+        // observable here. The wait below for the stable "Play" it settles
+        // back into already proves playback ran.
         playPauseIcon.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-        XCTAssertEqual(playPauseIcon.label, "Pause")
 
         // Give it generous time to reach the (now nearby) trim end and
         // auto-stop on its own.
@@ -135,10 +156,21 @@ final class PreviewPlaybackUITests: XCTestCase {
         )
 
         // Play again — should replay from trim.start, not resume near the end.
+        // No "Pause" check here either, for the same reason as above: this
+        // trimmed range is short enough that playback can auto-stop again
+        // before .click() returns. The position wait below is the real
+        // assertion — it can only settle at trim.start if playback did run.
         playPauseIcon.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-        XCTAssertEqual(playPauseIcon.label, "Pause")
+
+        // The indicator only reaches trim.start once the first post-replay
+        // frame decodes, which is async — reading .frame immediately can
+        // still show the pre-replay position it was left at.
+        let settledAtStart = NSPredicate { _, _ in
+            abs(seekIndicator.frame.midX - trimmedStartX) <= 6
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: settledAtStart, object: seekIndicator)
         XCTAssertEqual(
-            seekIndicator.frame.midX, trimmedStartX, accuracy: 6,
+            XCTWaiter().wait(for: [expectation], timeout: 5), .completed,
             "replay didn't restart from trim.start"
         )
     }

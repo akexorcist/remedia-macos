@@ -10,6 +10,14 @@ struct ContentView: View {
     /// Mirrors `WindowSizeManager`'s own remembered-size pattern, just for
     /// the preview/output-config split instead of the window frame.
     private static func rememberedPreviewPaneHeight() -> CGFloat {
+        // UI tests should start from the same known height every run —
+        // otherwise a previous test's drag persists via UserDefaults and
+        // can leave the next one with no headroom left to drag by its own
+        // fixed amount, drifting a "round trip" test's math for reasons
+        // that have nothing to do with what it's actually testing.
+        if ProcessInfo.processInfo.environment["UI_TEST_AUTOLOAD_MEDIA_PATH"] != nil {
+            return 320
+        }
         let stored = UserDefaults.standard.double(forKey: previewPaneHeightKey)
         return stored > 0 ? CGFloat(stored) : 320
     }

@@ -24,6 +24,11 @@ final class TrimScrubberSeekUITests: XCTestCase {
     private func launchAtEditorScreen() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["UI_TEST_AUTOLOAD_MEDIA_PATH"] = fixtureURL.path
+        // Without this, a force-terminated app's window state gets saved
+        // and restored on the next launch — across enough UI tests in one
+        // run, stale windows pile up until XCUIElement queries start
+        // matching several duplicate "Remedia" windows at once.
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
         app.launch()
         return app
     }

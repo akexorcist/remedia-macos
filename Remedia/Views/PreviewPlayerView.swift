@@ -91,6 +91,11 @@ struct PreviewPlayerView: View {
             var reachedEnd = false
             while !Task.isCancelled {
                 await viewModel.updatePreview(at: time)
+                // A pause can land while the above await is in flight —
+                // cancellation doesn't interrupt it, so without this check
+                // the seek indicator would still visibly advance by one
+                // more frame after the user already paused.
+                guard !Task.isCancelled else { break }
                 seekTime = time
                 time += frameInterval
                 if time >= trimEnd {
