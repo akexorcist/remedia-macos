@@ -140,9 +140,18 @@ final class PreviewPlaybackUITests: XCTestCase {
         XCTAssertTrue(playPauseIcon.waitForExistence(timeout: 15))
         XCTAssertTrue(endHandle.exists)
 
-        // Trim the end in close so playback finishes quickly.
+        // Trim the end in, but only enough to finish within the auto-stop
+        // wait's timeout below — not so tight that the remaining duration
+        // is comparable to XCTNSPredicateExpectation's own startup latency
+        // (empirically over a second): trimmed to ~30% remaining, the whole
+        // play-to-auto-stop cycle measured well under that latency, so the
+        // very first "Pause" poll below always arrived after the *second*
+        // cycle had already finished and reverted back to "Play" — no
+        // timeout fixes that, since nothing further changes once it's back
+        // at that same stable end state. ~70% remaining leaves a wide
+        // enough window that the "Pause" state is actually observable.
         let endCoord = endHandle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let dragIn = endHandle.frame.midX * 0.7
+        let dragIn = endHandle.frame.midX * 0.3
         endCoord.press(
             forDuration: 0.1, thenDragTo: endCoord.withOffset(CGVector(dx: -dragIn, dy: 0)),
             withVelocity: .slow, thenHoldForDuration: 0.1
@@ -156,25 +165,25 @@ final class PreviewPlaybackUITests: XCTestCase {
             XCTWaiter().wait(for: [stoppedExpectation], timeout: 30), .completed,
             "playback never auto-stopped at the trim end"
         )
-
-        // Play again — should replay from trim.start, not resume near the end.
-        // No "Pause" check here either, for the same reason as above: this
-        // trimmed range is short enough that playback can auto-stop again
-        // before .click() returns. The position wait below is the real
-        // assertion — it can only settle at trim.start if playback did run.
+        // Play again — should replay from trim.start, not resume near the
+        // end. Neither an immediate read after .click() (proven unreliable
+        // earlier in this file — can catch a stale pre-click render) nor
+        // waiting for a stable "Pause" state via XCTNSPredicateExpectation
+        // (its own polling overhead is comparable to seconds of real
+        // playback, drifting the check well past trim.start even when
+        // correct) works here. A short fixed sleep is the middle ground:
+        // long enough to guarantee at least one fresh post-click render,
+        // short enough that genuine playback can only have drifted a few
+        // frames from trim.start.
         playPauseIcon.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-
-        // The indicator only reaches trim.start once the first post-replay
-        // frame decodes, which is async — reading .frame immediately can
-        // still show the pre-replay position it was left at.
-        let settledAtStart = NSPredicate { _, _ in
-            abs(seekIndicator.frame.midX - trimmedStartX) <= 6
-        }
-        let expectation = XCTNSPredicateExpectation(predicate: settledAtStart, object: seekIndicator)
+        Thread.sleep(forTimeInterval: 0.3)
         XCTAssertEqual(
-            XCTWaiter().wait(for: [expectation], timeout: 15), .completed,
+            seekIndicator.frame.midX, trimmedStartX, accuracy: 40,
             "replay didn't restart from trim.start"
         )
+
+        // Stop playback so the app isn't left playing when the test ends.
+        playPauseIcon.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
     }
 
     @MainActor
