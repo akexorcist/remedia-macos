@@ -5,9 +5,8 @@ import RemediaCore
 struct VideoSettingsView: View {
     var viewModel: ConversionViewModel
 
-    private static let resolutionPresets: [ResolutionOverride] = [
-        .original, .scale(0.75), .scale(0.5), .scale(0.25)
-    ]
+    static let scaleFactorPresets: [Double] = [0.75, 0.5, 0.25]
+    static let fixedWidthPresets: [Int] = [1600, 1200, 960, 800, 720, 640, 600, 480, 400, 320, 280]
     private static let frameRatePresets: [FrameRateOverride] = [
         .original, .fps(60), .fps(30), .fps(24)
     ]
@@ -43,7 +42,10 @@ struct VideoSettingsView: View {
                         get: { settings.resolution },
                         set: { viewModel.videoSettings?.resolution = $0 }
                     )) {
-                        ForEach(Self.resolutionPresets, id: \.self) { preset in
+                        ForEach(
+                            Self.resolutionOptions(sourceWidth: (viewModel.crop?.size ?? viewModel.mediaFile?.resolution)?.width ?? 0),
+                            id: \.self
+                        ) { preset in
                             Text(label(for: preset)).tag(preset)
                         }
                     } label: {
@@ -130,6 +132,28 @@ struct VideoSettingsView: View {
         }
     }
 
+    /// Merges `scaleFactorPresets` with `fixedWidthPresets` (only the ones
+    /// narrower than the source) into one list sorted by resulting width,
+    /// descending, `.original` always first. A fixed width is dropped when
+    /// it would produce the exact same width as a scale-factor preset
+    /// already in the list, rather than showing two entries that resolve
+    /// to the same output.
+    static func resolutionOptions(sourceWidth: CGFloat) -> [ResolutionOverride] {
+        guard sourceWidth > 0 else { return [.original] }
+
+        let scaleOptions = scaleFactorPresets.map { factor in
+            (width: Int(sourceWidth * factor), override: ResolutionOverride.scale(factor))
+        }
+        let scaleWidths = Set(scaleOptions.map(\.width))
+
+        let fixedWidthOptions = fixedWidthPresets
+            .filter { CGFloat($0) < sourceWidth && !scaleWidths.contains($0) }
+            .map { (width: $0, override: ResolutionOverride.customWidth($0)) }
+
+        let merged = (scaleOptions + fixedWidthOptions).sorted { $0.width > $1.width }
+        return [.original] + merged.map(\.override)
+    }
+
     /// Uses the crop area's size once active, matching `OutputSizeResolver`'s
     /// own base for "Original"/scale-factor sizing.
     private func label(for resolution: ResolutionOverride) -> String {
@@ -142,14 +166,14 @@ struct VideoSettingsView: View {
         }
         switch resolution {
         case .original:
-            return "Original (\(Int(sourceSize.width))x\(Int(sourceSize.height)))"
+            return "\(Int(sourceSize.width))x\(Int(sourceSize.height)) (Original)"
         case .scale(let factor):
             let width = Int(sourceSize.width * factor)
             let height = Int(sourceSize.height * factor)
-            return "\(factor.formatted())x (\(width)x\(height))"
+            return "\(width)x\(height) (\(factor.formatted())x)"
         case .customWidth(let width):
             let height = sourceSize.width > 0 ? Int(CGFloat(width) * sourceSize.height / sourceSize.width) : width
-            return "\(width)px wide (\(width)x\(height))"
+            return "\(width)x\(height)"
         }
     }
 
