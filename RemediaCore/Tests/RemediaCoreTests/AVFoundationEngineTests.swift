@@ -1,7 +1,64 @@
 import Testing
 import Foundation
 import CoreGraphics
+import CoreMedia
 @testable import RemediaCore
+
+@Test func avFoundationEngineRespectsExplicitVideoCodecChoice() async throws {
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let sourceURL = tempDir.appendingPathComponent("source.mov")
+    try await SyntheticMovie.makeSolidColorMovie(url: sourceURL, size: CGSize(width: 320, height: 240), fps: 10, duration: 1.0)
+    let probed = try await MediaFileProber.probe(url: sourceURL)
+    let engine = AVFoundationEngine()
+
+    for codec: VideoCodec in [.h264, .hevc] {
+        let settings = VideoSettings(trim: TrimRange(start: 0, end: 1.0), audio: .stripped, videoCodec: codec)
+        let outputURL = tempDir.appendingPathComponent("output-\(codec.rawValue).mp4")
+        let job = engine.convert(probed, to: .mp4, settings: .video(settings), outputURL: outputURL)
+        for await _ in await job.progress {}
+        guard case .completed = await job.state else {
+            Issue.record("expected \(codec) job to complete")
+            continue
+        }
+        let actualFourCC = try await VideoCodecInspector.videoCodec(of: outputURL)
+        let acceptable = VideoCodecInspector.acceptableFourCCs(for: codec)
+        #expect(acceptable.contains(actualFourCC), "\(codec) produced codec fourCC \(actualFourCC), expected one of \(acceptable)")
+    }
+}
+
+/// `.customWidth` (unlike `.scale`) had never been exercised by any test —
+/// including from the UI, since there was no control for it at all until
+/// `ResolutionPickerRow`'s width/height fields.
+@Test func avFoundationEngineAppliesCustomWidthResolution() async throws {
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let sourceURL = tempDir.appendingPathComponent("source.mov")
+    try await SyntheticMovie.makeSolidColorMovie(url: sourceURL, size: CGSize(width: 640, height: 480), fps: 10, duration: 1.0)
+    let probed = try await MediaFileProber.probe(url: sourceURL)
+
+    // 640x480 (4:3) at customWidth(321) -> raw 321x240.75, then
+    // OutputSizeResolver's even-dimension floor -> 320x240.
+    let settings = VideoSettings(
+        resolution: .customWidth(321), trim: TrimRange(start: 0, end: 1.0), audio: .stripped
+    )
+    let outputURL = tempDir.appendingPathComponent("output.mp4")
+    let engine = AVFoundationEngine()
+    let job = engine.convert(probed, to: .mp4, settings: .video(settings), outputURL: outputURL)
+    for await _ in await job.progress {}
+    guard case .completed = await job.state else {
+        Issue.record("expected job to complete")
+        return
+    }
+
+    let outputProbe = try await MediaFileProber.probe(url: outputURL)
+    #expect(outputProbe.resolution.width == 320)
+    #expect(outputProbe.resolution.height == 240)
+}
 
 @Test func avFoundationEngineAppliesTrimCropAndScale() async throws {
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

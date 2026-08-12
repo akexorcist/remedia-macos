@@ -156,7 +156,9 @@ public struct AVFoundationEngine: ConversionEngine {
 
         let videoInput = AVAssetWriterInput(
             mediaType: .video,
-            outputSettings: videoEncoderSettings(outputSize: outputSize, quality: settings.quality, frameRate: frameRateValue)
+            outputSettings: videoEncoderSettings(
+                outputSize: outputSize, quality: settings.quality, frameRate: frameRateValue, codec: settings.videoCodec
+            )
         )
         videoInput.expectsMediaDataInRealTime = false
         let pixelBufferAdaptor = AVAssetWriterInputPixelBufferAdaptor(
@@ -382,23 +384,43 @@ public struct AVFoundationEngine: ConversionEngine {
         return composition
     }
 
-    /// Quality (0...100) maps to bitrate via a bits-per-pixel heuristic
-    /// (~0.05 bpp at Low, ~0.35 bpp at High) since AVAssetWriterInput has no
-    /// direct CRF-style knob for H.264 the way FFmpeg does.
-    private static func videoEncoderSettings(outputSize: CGSize, quality: Double, frameRate: Float) -> [String: Any] {
-        let normalizedQuality = max(min(quality, 100), 0) / 100.0
-        let bitsPerPixel = 0.05 + (0.35 - 0.05) * normalizedQuality
+    /// Quality maps to bitrate via a bits-per-pixel heuristic since
+    /// AVAssetWriterInput has no direct CRF-style knob for H.264/HEVC the
+    /// way FFmpeg does. Calibrated against quality's *actual* UI range,
+    /// 50...100 (`VideoSettings.quality`), not the full 0...100 span the
+    /// previous 0.05...0.35 bpp range assumed — that mismatch meant every
+    /// reachable setting landed at 0.2...0.35 bpp, well past real-world
+    /// "high quality" H.264/HEVC delivery bitrates (~0.08...0.15 bpp), and
+    /// could produce an output larger than an already-reasonably-encoded
+    /// source even at a middling quality setting.
+    private static func videoEncoderSettings(
+        outputSize: CGSize, quality: Double, frameRate: Float, codec: VideoCodec
+    ) -> [String: Any] {
+        let normalizedQuality = (max(min(quality, 100), 50) - 50) / 50.0
+        let bitsPerPixel = 0.04 + (0.16 - 0.04) * normalizedQuality
         let bitRate = Double(outputSize.width) * Double(outputSize.height) * Double(frameRate) * bitsPerPixel
 
+        var compressionProperties: [String: Any] = [
+            AVVideoAverageBitRateKey: Int(bitRate),
+            AVVideoExpectedSourceFrameRateKey: Int(frameRate)
+        ]
+
+        let codecType: AVVideoCodecType
+        switch codec {
+        case .auto, .h264:
+            codecType = .h264
+            // No HEVC equivalent of this key is set below — AVFoundation
+            // picks a sensible default profile for HEVC on its own.
+            compressionProperties[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+        case .hevc:
+            codecType = .hevc
+        }
+
         return [
-            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoCodecKey: codecType,
             AVVideoWidthKey: Int(outputSize.width),
             AVVideoHeightKey: Int(outputSize.height),
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: Int(bitRate),
-                AVVideoExpectedSourceFrameRateKey: Int(frameRate),
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel
-            ] as [String: Any]
+            AVVideoCompressionPropertiesKey: compressionProperties
         ]
     }
 

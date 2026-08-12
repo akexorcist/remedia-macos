@@ -1,7 +1,38 @@
 import Testing
 import Foundation
 import CoreGraphics
+import CoreMedia
 @testable import RemediaCore
+
+/// The webm target's fixed libvpx-vp9 codec is unaffected by this setting
+/// (per `FFmpegEngine.videoCodecName`, only mp4/mov consult it) — this
+/// exercises the mp4/mov branch, which real usage reaches whenever the
+/// *source* (not just the target) isn't natively readable, e.g. gif/webm to
+/// mp4/mov, routing through FFmpegEngine despite the native-looking target.
+@Test func ffmpegEngineRespectsExplicitVideoCodecChoice() async throws {
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let sourceURL = tempDir.appendingPathComponent("source.mov")
+    try await SyntheticMovie.makeSolidColorMovie(url: sourceURL, size: CGSize(width: 320, height: 240), fps: 10, duration: 1.0)
+    let probed = try await MediaFileProber.probe(url: sourceURL)
+    let engine = FFmpegEngine()
+
+    for codec: VideoCodec in [.h264, .hevc] {
+        let settings = VideoSettings(trim: TrimRange(start: 0, end: 1.0), audio: .stripped, videoCodec: codec)
+        let outputURL = tempDir.appendingPathComponent("output-\(codec.rawValue).mp4")
+        let job = engine.convert(probed, to: .mp4, settings: .video(settings), outputURL: outputURL)
+        for await _ in await job.progress {}
+        guard case .completed = await job.state else {
+            Issue.record("expected \(codec) job to complete")
+            continue
+        }
+        let actualFourCC = try await VideoCodecInspector.videoCodec(of: outputURL)
+        let acceptable = VideoCodecInspector.acceptableFourCCs(for: codec)
+        #expect(acceptable.contains(actualFourCC), "\(codec) produced codec fourCC \(actualFourCC), expected one of \(acceptable)")
+    }
+}
 
 @Test func ffmpegEngineConvertsMovToWebmWithTrimCropAndScale() async throws {
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

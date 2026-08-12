@@ -68,6 +68,23 @@ struct VideoSettingsView: View {
                 }
                 .padding(.bottom, Self.sectionSpacing)
 
+                if viewModel.targetFormat == .mp4 || viewModel.targetFormat == .mov {
+                    Section {
+                        Picker(selection: Binding(
+                            get: { settings.videoCodec },
+                            set: { viewModel.videoSettings?.videoCodec = $0 }
+                        )) {
+                            Text("Auto Codec").tag(VideoCodec.auto)
+                            Text("H.264").tag(VideoCodec.h264)
+                            Text("HEVC").tag(VideoCodec.hevc)
+                        } label: {
+                            Text("Video")
+                                .frame(width: Self.labelWidth, alignment: .trailing)
+                        }
+                    }
+                    .padding(.bottom, Self.sectionSpacing)
+                }
+
                 Section {
                     LabeledContent {
                         HStack(spacing: 8) {

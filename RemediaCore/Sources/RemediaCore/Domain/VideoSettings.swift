@@ -15,6 +15,9 @@ public struct VideoSettings: Sendable, Equatable {
     /// `nil` means no crop.
     public var crop: CGRect?
     public var audio: AudioMode
+    /// mp4/mov only (REQUIREMENTS §6) — ignored for a webm target, which is
+    /// always libvpx-vp9 regardless of this value.
+    public var videoCodec: VideoCodec
 
     public init(
         quality: Double = 85,
@@ -22,7 +25,8 @@ public struct VideoSettings: Sendable, Equatable {
         frameRate: FrameRateOverride = .original,
         trim: TrimRange,
         crop: CGRect? = nil,
-        audio: AudioMode = .auto
+        audio: AudioMode = .auto,
+        videoCodec: VideoCodec = .auto
     ) {
         self.quality = quality
         self.resolution = resolution
@@ -30,5 +34,6 @@ public struct VideoSettings: Sendable, Equatable {
         self.trim = trim
         self.crop = crop
         self.audio = audio
+        self.videoCodec = videoCodec
     }
 }

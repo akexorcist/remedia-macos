@@ -130,7 +130,7 @@ public struct FFmpegEngine: ConversionEngine {
             fps: fps,
             trim: trim,
             quality: quality,
-            videoCodecName: videoCodecName(for: target),
+            videoCodecName: videoCodecName(for: target, settings: settings),
             audio: audio,
             isGifTarget: isGifTarget,
             paletteColors: paletteColors,
@@ -140,9 +140,14 @@ public struct FFmpegEngine: ConversionEngine {
         )
     }
 
-    private static func videoCodecName(for target: OutputFormat) -> String {
+    private static func videoCodecName(for target: OutputFormat, settings: ConversionSettings) -> String {
         switch target {
-        case .mov, .mp4: return "h264_videotoolbox"
+        case .mov, .mp4:
+            guard case .video(let videoSettings) = settings else { return "h264_videotoolbox" }
+            switch videoSettings.videoCodec {
+            case .auto, .h264: return "h264_videotoolbox"
+            case .hevc: return "hevc_videotoolbox"
+            }
         case .webm: return "libvpx-vp9"
         case .gif: return "gif"
         }
