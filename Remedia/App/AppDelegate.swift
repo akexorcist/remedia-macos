@@ -13,6 +13,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         true
     }
 
+    static func showAboutPanel() {
+        let credits = NSMutableAttributedString()
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+
+        func appendLine(_ text: String, link: URL? = nil) {
+            var attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .paragraphStyle: paragraphStyle
+            ]
+            if let link {
+                attributes[.link] = link
+            }
+            if !credits.string.isEmpty {
+                credits.append(NSAttributedString(string: "\n"))
+            }
+            credits.append(NSAttributedString(string: text, attributes: attributes))
+        }
+
+        appendLine("akexorcist/remedia-macos", link: URL(string: "https://github.com/akexorcist/remedia-macos"))
+        // Extra gap here, not after: the license line should read as
+        // paired with the copyright line the system places right below
+        // this whole credits block, not with the repo link above it.
+        credits.append(NSAttributedString(string: "\n"))
+        appendLine("Apache License 2.0", link: URL(string: "https://www.apache.org/licenses/LICENSE-2.0"))
+
+        NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: credits])
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let viewModel, case .converting = viewModel.phase else {
             return .terminateNow

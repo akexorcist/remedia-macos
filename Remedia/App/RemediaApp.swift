@@ -11,5 +11,12 @@ struct RemediaApp: App {
                 .onAppear { appDelegate.viewModel = viewModel }
         }
         .defaultSize(width: 360, height: 270)
+        .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Remedia") {
+                    AppDelegate.showAboutPanel()
+                }
+            }
+        }
     }
 }
