@@ -143,9 +143,16 @@ struct GifSettingsView: View {
         switch frameRate {
         case .original:
             guard let sourceRate = viewModel.mediaFile?.frameRate else { return "Original" }
-            return "Original (\(Int(sourceRate)))"
+            return "Original (\(Self.formatted(sourceRate)))"
         case .fps(let value):
             return "\(Int(value))"
         }
+    }
+
+    /// Rounds to 2 decimal places rather than truncating to `Int` — sources
+    /// shot at NTSC rates (e.g. 59.94, 23.976) would otherwise silently
+    /// display as 59/23, which doesn't match what's actually being played.
+    private static func formatted(_ frameRate: Double) -> String {
+        frameRate.formatted(.number.precision(.fractionLength(0...2)))
     }
 }
