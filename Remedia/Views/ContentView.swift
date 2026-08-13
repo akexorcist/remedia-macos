@@ -135,33 +135,61 @@ struct ContentView: View {
     }
 
     private static let resultInfoLabelSpacing: CGFloat = 8
+    private static let completedVStackSpacing: CGFloat = 16
+    // `.aspectRatio(contentMode: .fit)` relies on SwiftUI's flexible-sizing
+    // negotiation to shrink a view within a VStack, which twice over proved
+    // unreliable here — `ResultPlayerView`'s NSViewRepresentable-backed
+    // players (AVPlayerLayer, etc.) don't cooperate with it and end up
+    // claiming the VStack's entire height, pushing the label/button rows
+    // out of view instead of yielding to them. So the image's size is
+    // computed explicitly instead, via the same letterboxing math the crop
+    // overlay already uses, against whatever height is left after generously
+    // reserving room for those two rows — no negotiation, no ambiguity.
+    private static let completedLabelRowReservedHeight: CGFloat = 28
+    private static let completedButtonRowReservedHeight: CGFloat = 40
 
     private func completedView(outputURL: URL) -> some View {
-        VStack(spacing: 16) {
-            VStack(spacing: Self.resultInfoLabelSpacing) {
-                resultInfoLabel(outputURL: outputURL)
+        GeometryReader { geometry in
+            let reservedHeight = Self.completedLabelRowReservedHeight + Self.completedButtonRowReservedHeight
+                + Self.completedVStackSpacing + Self.resultInfoLabelSpacing
+            let availableImageSize = CGSize(
+                width: geometry.size.width,
+                height: max(geometry.size.height - reservedHeight, 40)
+            )
+            let aspectRatio = Self.resultAspectRatio(for: viewModel.resultMediaFile)
+            let fittedSize = CropOverlayView.letterboxedContentRect(
+                containerSize: availableImageSize,
+                sourceSize: CGSize(width: aspectRatio, height: 1)
+            ).size
 
-                // Reflects the actual exported file's dimensions (post-crop),
-                // rather than a fixed 16:9 — a non-16:9 crop (e.g. 1:1, 4:3)
-                // was correctly exported but shown letterboxed/pillarboxed to
-                // the wrong shape here otherwise.
-                ResultPlayerView(url: outputURL, mediaFile: viewModel.resultMediaFile)
-                    .aspectRatio(Self.resultAspectRatio(for: viewModel.resultMediaFile), contentMode: .fit)
-            }
+            VStack(spacing: Self.completedVStackSpacing) {
+                VStack(spacing: Self.resultInfoLabelSpacing) {
+                    resultInfoLabel(outputURL: outputURL)
 
-            HStack {
-                Spacer()
-                Button("Back") {
-                    viewModel.backToEditor()
+                    // Reflects the actual exported file's dimensions
+                    // (post-crop), rather than a fixed 16:9 — a non-16:9 crop
+                    // (e.g. 1:1, 4:3) was correctly exported but shown
+                    // letterboxed/pillarboxed to the wrong shape otherwise.
+                    ResultPlayerView(url: outputURL, mediaFile: viewModel.resultMediaFile)
+                        .frame(width: fittedSize.width, height: fittedSize.height)
                 }
-                Button("Start Over") {
-                    viewModel.reset()
+                .frame(maxWidth: .infinity)
+
+                HStack {
+                    Spacer()
+                    Button("Back") {
+                        viewModel.backToEditor()
+                    }
+                    Button("Start Over") {
+                        viewModel.reset()
+                    }
+                    Button("Save") {
+                        Task { await viewModel.saveResult() }
+                    }
+                    .keyboardShortcut(.defaultAction)
                 }
-                Button("Save") {
-                    Task { await viewModel.saveResult() }
-                }
-                .keyboardShortcut(.defaultAction)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

@@ -435,6 +435,17 @@ static int cffmpeg_open_audio_encoder(const CFFmpegTranscodeOptions *options, AV
     return 0;
 }
 
+// Reports progress from a just-filtered video frame's own (already
+// trim-rebased) pts, rather than from decode progress — see the call site
+// in the gif EOF-drain loop below for why decode progress alone isn't
+// enough.
+static void cffmpeg_report_output_progress(AVFrame *filteredFrame, AVRational sinkTimeBase, double totalDuration,
+                                            CFFmpegProgressCallback progressCallback, void *progressContext) {
+    if (!progressCallback) return;
+    double outputPts = filteredFrame->pts == AV_NOPTS_VALUE ? 0.0 : filteredFrame->pts * av_q2d(sinkTimeBase);
+    progressCallback(outputPts / totalDuration, progressContext);
+}
+
 // frame=NULL flushes at end-of-stream.
 static int cffmpeg_encode_and_write(AVCodecContext *encoderCtx, AVFormatContext *outputCtx, AVStream *stream,
                                      AVFrame *frame, AVRational frameTimeBase, AVPacket *packet,
@@ -764,11 +775,15 @@ int cffmpeg_transcode(
                 goto cleanup;
             }
 
-            // Per decoded frame, not per filtered-output frame — gif's
-            // palette filter graph buffers everything and emits nothing
-            // from buffersink until EOF, which left progress pinned at 0%
-            // until a final burst at the end.
-            if (pipeline == &video) {
+            // Decode keeps pace with output for every other filter graph,
+            // so reporting it here keeps progress responsive without
+            // waiting on buffersink. gif's palettegen+paletteuse graph is
+            // the exception — it buffers the whole clip and emits nothing
+            // until EOF (see cffmpeg_build_video_filter_description), so
+            // decode progress would race to ~100% almost immediately while
+            // the real encode work (reported below, and in the EOF-drain
+            // loop further down) hasn't even started yet.
+            if (pipeline == &video && !options->isGifTarget) {
                 if (progressCallback) progressCallback((framePts - options->trimStart) / totalDuration, progressContext);
             }
 
@@ -777,6 +792,13 @@ int cffmpeg_transcode(
                 if (pipeline == &audio) {
                     ret = cffmpeg_push_audio_frame(pipeline, filteredFrame, outputCtx, packet, errorBuffer, errorBufferSize);
                 } else {
+                    // Read pts before cffmpeg_encode_and_write, which
+                    // rescales frame->pts in place into the encoder's own
+                    // time_base — reading it after would misinterpret those
+                    // encoder-timebase ticks as sinkTimeBase-based seconds.
+                    if (options->isGifTarget) {
+                        cffmpeg_report_output_progress(filteredFrame, sinkTimeBase, totalDuration, progressCallback, progressContext);
+                    }
                     ret = cffmpeg_encode_and_write(pipeline->encoderCtx, outputCtx, pipeline->outputStream,
                                                    filteredFrame, sinkTimeBase, packet, errorBuffer, errorBufferSize);
                 }
@@ -813,6 +835,9 @@ int cffmpeg_transcode(
                     if (pipeline == &audio) {
                         ret = cffmpeg_push_audio_frame(pipeline, filteredFrame, outputCtx, packet, errorBuffer, errorBufferSize);
                     } else {
+                        // Read pts before it's rescaled in place — see the
+                        // comment at the first call site above.
+                        cffmpeg_report_output_progress(filteredFrame, sinkTimeBase, totalDuration, progressCallback, progressContext);
                         ret = cffmpeg_encode_and_write(pipeline->encoderCtx, outputCtx, pipeline->outputStream,
                                                        filteredFrame, sinkTimeBase, packet, errorBuffer, errorBufferSize);
                     }
@@ -823,10 +848,19 @@ int cffmpeg_transcode(
 
             AVRational sinkTimeBase = av_buffersink_get_time_base(pipeline->bufferSinkCtx);
             (void)av_buffersrc_add_frame_flags(pipeline->bufferSrcCtx, NULL, 0);
+            // For gif's palettegen+paletteuse graph (built in
+            // cffmpeg_build_video_filter_description), nothing reaches
+            // buffersink until this EOF push — palettegen needs the whole
+            // clip before it can emit a global palette. So *this* loop, not
+            // the per-frame one above, is where the entire encode actually
+            // happens for gif output, and needs its own progress reporting
+            // or the UI sits pinned near 100% (last decoded frame's pts)
+            // for the whole real encode.
             while (av_buffersink_get_frame(pipeline->bufferSinkCtx, filteredFrame) == 0) {
                 if (pipeline == &audio) {
                     ret = cffmpeg_push_audio_frame(pipeline, filteredFrame, outputCtx, packet, errorBuffer, errorBufferSize);
                 } else {
+                    cffmpeg_report_output_progress(filteredFrame, sinkTimeBase, totalDuration, progressCallback, progressContext);
                     ret = cffmpeg_encode_and_write(pipeline->encoderCtx, outputCtx, pipeline->outputStream,
                                                    filteredFrame, sinkTimeBase, packet, errorBuffer, errorBufferSize);
                 }

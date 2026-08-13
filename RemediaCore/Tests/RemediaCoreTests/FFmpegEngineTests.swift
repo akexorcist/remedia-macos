@@ -255,6 +255,54 @@ import CoreMedia
     )
 }
 
+/// Regression: even with the fix above, progress was still driven by
+/// *decode* pts, which races ahead of the real work — gif's palette filter
+/// only starts emitting (and only starts truly encoding) once decode hits
+/// EOF, so decode-based reporting shot up to ~100% almost instantly and
+/// then sat there, unreported, for the entire real encode. Progress must
+/// now come from the filtered *output* pts instead, which can only advance
+/// as encoding actually happens — so crossing 90% should take a real
+/// share of the job's total wall-clock time, not appear in the first instant.
+@Test func ffmpegEngineGifConversionProgressTracksRealEncodeTimeNotJustDecode() async throws {
+    let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDir) }
+
+    let sourceURL = tempDir.appendingPathComponent("source.mov")
+    let sourceSize = CGSize(width: 480, height: 360)
+    try await SyntheticMovie.makeSolidColorMovie(url: sourceURL, size: sourceSize, fps: 24, duration: 4.0)
+
+    let probed = try await MediaFileProber.probe(url: sourceURL)
+    let settings = GifSettings(trim: .full(duration: probed.duration))
+
+    let outputURL = tempDir.appendingPathComponent("output.gif")
+    let engine = FFmpegEngine()
+    let jobStart = Date()
+    let job = engine.convert(probed, to: .gif, settings: .gif(settings), outputURL: outputURL)
+
+    var timedValues: [(elapsed: Double, value: Double)] = []
+    for await value in await job.progress {
+        timedValues.append((Date().timeIntervalSince(jobStart), value))
+    }
+
+    guard case .completed = await job.state else {
+        Issue.record("expected job to complete, got \(await job.state)")
+        return
+    }
+
+    let totalElapsed = timedValues.last?.elapsed ?? 0
+    let firstHighProgress = timedValues.first(where: { $0.value >= 0.9 })
+    #expect(totalElapsed > 0, "job finished too fast for timing to be meaningful")
+    guard let firstHighProgress else {
+        Issue.record("expected some progress value to reach >= 0.9; got \(timedValues.map(\.value))")
+        return
+    }
+    #expect(
+        firstHighProgress.elapsed > totalElapsed * 0.15,
+        "progress crossed 90% at \(firstHighProgress.elapsed)s, too close to job start (\(totalElapsed)s total) — looks like it's tracking decode instead of the real encode"
+    )
+}
+
 @Test func ffmpegEngineCancelDeletesPartialOutput() async throws {
     let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
