@@ -110,20 +110,89 @@ private struct AVPlayerContainerView: NSViewRepresentable {
     }
 }
 
-private struct GifPlayerView: NSViewRepresentable {
+/// Decodes and plays frames lazily via `CGImageSource`, matching
+/// `WebmLoopPlayerView`'s pattern below, rather than handing the whole file
+/// to `NSImageView.animates` — that AppKit path draws at the image's native
+/// pixel size regardless of any SwiftUI `.frame()` constraint on the
+/// representable, which let a large gif overflow the completed screen's
+/// computed layout. Being a plain SwiftUI `Image` here, this respects
+/// `.frame()` like every other player does.
+private struct GifPlayerView: View {
     let url: URL
     @Binding var isPlaying: Bool
 
-    func makeNSView(context: Context) -> NSImageView {
-        let imageView = NSImageView()
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.image = NSImage(contentsOf: url)
-        imageView.animates = isPlaying
-        return imageView
+    @State private var currentImage: CGImage?
+    @State private var source: CGImageSource?
+    @State private var frameCount = 0
+    @State private var playbackTask: Task<Void, Never>?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let currentImage {
+                Image(decorative: currentImage, scale: 1, orientation: .up)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            }
+        }
+        .task(id: url) {
+            await loadFirstFrame()
+        }
+        .onChange(of: isPlaying) { _, playing in
+            if playing {
+                startPlaybackLoop()
+            } else {
+                playbackTask?.cancel()
+            }
+        }
+        .onDisappear {
+            playbackTask?.cancel()
+        }
     }
 
-    func updateNSView(_ nsView: NSImageView, context: Context) {
-        nsView.animates = isPlaying
+    // `CGImageSource` isn't `Sendable`, so this stays on the calling
+    // (main) actor rather than `Task.detached` like `WebmLoopPlayerView`'s
+    // FFmpeg-backed decode does — native gif decode is cheap enough that
+    // matching `AVAssetImageGenerator`-based scrubbing elsewhere (also
+    // undetached) is fine here.
+    private func loadFirstFrame() async {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return }
+        let count = CGImageSourceGetCount(source)
+        guard count > 0, let firstImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return }
+        self.source = source
+        frameCount = count
+        currentImage = firstImage
+        if isPlaying {
+            startPlaybackLoop()
+        }
+    }
+
+    private func startPlaybackLoop() {
+        guard let source, frameCount > 0 else { return }
+        guard playbackTask == nil || playbackTask?.isCancelled == true else { return }
+        playbackTask = Task {
+            var index = 0
+            while !Task.isCancelled {
+                guard let image = CGImageSourceCreateImageAtIndex(source, index, nil) else { break }
+                currentImage = image
+                let delay = Self.frameDelay(source: source, index: index)
+                try? await Task.sleep(nanoseconds: UInt64(max(delay, 0.02) * 1_000_000_000))
+                index = (index + 1) % frameCount
+            }
+        }
+    }
+
+    private static func frameDelay(source: CGImageSource, index: Int) -> Double {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+              let gifProperties = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any]
+        else { return 0.1 }
+        if let unclamped = gifProperties[kCGImagePropertyGIFUnclampedDelayTime] as? Double, unclamped > 0 {
+            return unclamped
+        }
+        if let delay = gifProperties[kCGImagePropertyGIFDelayTime] as? Double, delay > 0 {
+            return delay
+        }
+        return 0.1
     }
 }
 
