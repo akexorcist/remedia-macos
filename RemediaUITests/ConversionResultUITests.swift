@@ -17,14 +17,15 @@ final class ConversionResultUITests: XCTestCase {
             .appendingPathComponent("RemediaCore/Tests/RemediaCoreTests/Fixtures/sample_video.mp4")
     }
 
-    /// 240x480 — tall enough that a naively-sized result preview (matching
-    /// its aspect ratio at full available width) would push the labels and
+    /// Real 720x1280 portrait recording — tall enough, and large enough in
+    /// absolute pixels, that a naively-sized result preview (matching its
+    /// aspect ratio at full available width) would push the labels and
     /// buttons below it out of the window.
     private var portraitFixtureURL: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // RemediaUITests/
             .deletingLastPathComponent() // remedia/
-            .appendingPathComponent("RemediaCore/Tests/RemediaCoreTests/Fixtures/sample_video_portrait.mp4")
+            .appendingPathComponent("RemediaCore/Tests/RemediaCoreTests/Fixtures/sample_video_portrait.mov")
     }
 
     /// Regression: a portrait/tall gif result used to either push the
@@ -43,6 +44,11 @@ final class ConversionResultUITests: XCTestCase {
         XCTAssertTrue(gifButton.waitForExistence(timeout: 15))
         gifButton.click()
 
+        // Stays at Original resolution deliberately — verified
+        // (fail-then-pass) that scaling the result down enough to speed up
+        // the encode (0.25x, 0.5x) also shrinks it below the absolute pixel
+        // size where either original bug reproduces, silently turning this
+        // into a vacuous check.
         let convertButton = app.buttons["Convert"]
         XCTAssertTrue(convertButton.exists)
         convertButton.click()

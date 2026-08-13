@@ -5,9 +5,6 @@ import RemediaCore
 struct GifSettingsView: View {
     var viewModel: ConversionViewModel
 
-    private static let scalePresets: [ResolutionOverride] = [
-        .original, .scale(0.75), .scale(0.5), .scale(0.25)
-    ]
     private static let fpsPresets: [FrameRateOverride] = [
         .original, .fps(24), .fps(15), .fps(12), .fps(10)
     ]
@@ -42,13 +39,21 @@ struct GifSettingsView: View {
                         get: { settings.scale },
                         set: { viewModel.gifSettings?.scale = $0 }
                     )) {
-                        ForEach(Self.scalePresets, id: \.self) { preset in
+                        // Same merged scale-factor/fixed-width preset list
+                        // as mp4/mov/webm's Resolution picker (REQUIREMENTS
+                        // §6/§7 use the same resolution model) — no reason
+                        // for gif's options to be a smaller subset.
+                        ForEach(
+                            VideoSettingsView.resolutionOptions(sourceWidth: (viewModel.crop?.size ?? viewModel.mediaFile?.resolution)?.width ?? 0),
+                            id: \.self
+                        ) { preset in
                             Text(label(for: preset)).tag(preset)
                         }
                     } label: {
                         Text("Resolution")
                             .frame(width: Self.labelWidth, alignment: .trailing)
                     }
+                    .accessibilityIdentifier("gifSettings.resolutionPicker")
                 }
                 .padding(.bottom, Self.sectionSpacing)
 
@@ -128,14 +133,14 @@ struct GifSettingsView: View {
         }
         switch resolution {
         case .original:
-            return "Original (\(Int(sourceSize.width))x\(Int(sourceSize.height)))"
+            return "\(Int(sourceSize.width))x\(Int(sourceSize.height)) (Original)"
         case .scale(let factor):
             let width = Int(sourceSize.width * factor)
             let height = Int(sourceSize.height * factor)
-            return "\(factor.formatted())x (\(width)x\(height))"
+            return "\(width)x\(height) (\(factor.formatted())x)"
         case .customWidth(let width):
             let height = sourceSize.width > 0 ? Int(CGFloat(width) * sourceSize.height / sourceSize.width) : width
-            return "\(width)px wide (\(width)x\(height))"
+            return "\(width)x\(height)"
         }
     }
 
