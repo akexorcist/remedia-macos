@@ -62,6 +62,15 @@ final class WindowSizeManager: NSObject, NSWindowDelegate {
     }
 
     private func rememberedEditorSize() -> NSSize {
+        // UI tests should start from the same known window size every run —
+        // otherwise a previous interactive session's resize persists via
+        // UserDefaults and can leave a test with far more room than a real
+        // first launch would have, silently hiding a layout overflow that
+        // only shows up at the actual default size. Mirrors
+        // `ContentView.rememberedPreviewPaneHeight()`'s same guard.
+        if ProcessInfo.processInfo.environment["UI_TEST_AUTOLOAD_MEDIA_PATH"] != nil {
+            return Self.defaultEditorSize
+        }
         let defaults = UserDefaults.standard
         let width = defaults.double(forKey: Self.editorWidthKey)
         let height = defaults.double(forKey: Self.editorHeightKey)

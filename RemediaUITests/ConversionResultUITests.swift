@@ -17,6 +17,57 @@ final class ConversionResultUITests: XCTestCase {
             .appendingPathComponent("RemediaCore/Tests/RemediaCoreTests/Fixtures/sample_video.mp4")
     }
 
+    /// 240x480 — tall enough that a naively-sized result preview (matching
+    /// its aspect ratio at full available width) would push the labels and
+    /// buttons below it out of the window.
+    private var portraitFixtureURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // RemediaUITests/
+            .deletingLastPathComponent() // remedia/
+            .appendingPathComponent("RemediaCore/Tests/RemediaCoreTests/Fixtures/sample_video_portrait.mp4")
+    }
+
+    /// Regression: a portrait/tall gif result used to either push the
+    /// duration/file-size labels and Back/Start Over/Save buttons off the
+    /// bottom of the window, or (via `NSImageView.animates`, since fixed)
+    /// render the preview at its native pixel size over top of them
+    /// regardless of the computed layout.
+    @MainActor
+    func testCompletedScreenKeepsLabelsAndButtonsVisibleForTallGifResult() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["UI_TEST_AUTOLOAD_MEDIA_PATH"] = portraitFixtureURL.path
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
+        app.launch()
+
+        let gifButton = app.radioButtons["GIF"]
+        XCTAssertTrue(gifButton.waitForExistence(timeout: 15))
+        gifButton.click()
+
+        let convertButton = app.buttons["Convert"]
+        XCTAssertTrue(convertButton.exists)
+        convertButton.click()
+
+        let durationLabel = app.descendants(matching: .any)
+            .matching(identifier: "completedScreen.duration").firstMatch
+        XCTAssertTrue(durationLabel.waitForExistence(timeout: 30), "conversion didn't reach the completed screen in time")
+
+        let fileSizeLabel = app.descendants(matching: .any)
+            .matching(identifier: "completedScreen.fileSize").firstMatch
+        let backButton = app.buttons["Back"]
+        let startOverButton = app.buttons["Start Over"]
+        let saveButton = app.buttons["Save"]
+
+        let windowFrame = app.windows.firstMatch.frame
+        for element in [durationLabel, fileSizeLabel, backButton, startOverButton, saveButton] {
+            XCTAssertTrue(element.exists)
+            XCTAssertTrue(element.isHittable, "\(element.identifier.isEmpty ? element.label : element.identifier) should be hittable, not pushed off-window or covered by the preview")
+            XCTAssertTrue(
+                windowFrame.contains(element.frame),
+                "\(element.identifier.isEmpty ? element.label : element.identifier) frame \(element.frame) falls outside the window \(windowFrame)"
+            )
+        }
+    }
+
     @MainActor
     func testConvertingSampleVideoShowsResultPreviewScreen() throws {
         let app = XCUIApplication()
