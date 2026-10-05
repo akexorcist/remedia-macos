@@ -197,4 +197,19 @@ int cffmpeg_force_sample_aspect_ratio(
     int errorBufferSize
 );
 
+// Test-fixture helper only (test_support.c) — synthesizes a small
+// libvpx-vp9/yuva420p webm directly (no decode source), since nothing in
+// FFmpegEngine's own pipeline writes alpha except when re-encoding a source
+// that already has it. The left half of every frame is fully opaque solid
+// red; the right half is fully transparent — a known, testable split.
+// Returns 0 on success, negative on failure with a message in errorBuffer.
+int cffmpeg_encode_synthetic_alpha_webm(
+    const char *outputPath,
+    int width,
+    int height,
+    int frameCount,
+    char *errorBuffer,
+    int errorBufferSize
+);
+
 #endif

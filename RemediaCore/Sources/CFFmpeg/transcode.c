@@ -48,7 +48,26 @@ static void cffmpeg_free_pipeline(CFFmpegStreamPipeline *pipeline) {
 int cffmpeg_open_decoder(AVFormatContext *inputCtx, int streamIndex, AVCodecContext **outDecoderCtx,
                                  char *errorBuffer, int errorBufferSize) {
     AVStream *stream = inputCtx->streams[streamIndex];
-    const AVCodec *decoder = avcodec_find_decoder(stream->codecpar->codec_id);
+    const AVCodec *decoder = NULL;
+
+    // FFmpeg's native vp8/vp9 decoders decode the base yuv420p picture only
+    // and silently ignore the Matroska "BlockAdditional" side data WebM
+    // uses to carry an alpha plane — only the libvpx-wrapped decoder reads
+    // it (libavcodec/libvpxdec.c), producing a yuva420p frame. Preferring
+    // it for vp8/vp9 is what lets alpha survive decode at all, for both
+    // preview and re-encode; falls back to the native decoder if libvpx
+    // support wasn't built in.
+    int isVpxAlphaCapable = 0;
+    if (stream->codecpar->codec_id == AV_CODEC_ID_VP9) {
+        decoder = avcodec_find_decoder_by_name("libvpx-vp9");
+        isVpxAlphaCapable = decoder != NULL;
+    } else if (stream->codecpar->codec_id == AV_CODEC_ID_VP8) {
+        decoder = avcodec_find_decoder_by_name("libvpx");
+        isVpxAlphaCapable = decoder != NULL;
+    }
+    if (!decoder) {
+        decoder = avcodec_find_decoder(stream->codecpar->codec_id);
+    }
     if (!decoder) {
         cffmpeg_set_error(errorBuffer, errorBufferSize, "No decoder available for input stream");
         return AVERROR_DECODER_NOT_FOUND;
@@ -75,6 +94,39 @@ int cffmpeg_open_decoder(AVFormatContext *inputCtx, int streamIndex, AVCodecCont
         return ret;
     }
 
+    // libvpxdec.c only learns whether a stream actually carries an alpha
+    // plane — and only then flips decoderCtx->pix_fmt from yuv420p to
+    // yuva420p — once it has decoded a real frame and inspected that
+    // packet for Matroska BlockAdditional side data; codecpar/demuxer-level
+    // probing never reports it, so decoderCtx->pix_fmt is wrong (opaque)
+    // immediately after open. Every caller builds pix_fmt-dependent state
+    // (a filter graph or an sws context) right after this function
+    // returns, so decode one throwaway frame here to force that detection,
+    // then rewind — callers see the stream exactly as they left it, just
+    // with an accurate pix_fmt.
+    if (isVpxAlphaCapable) {
+        AVPacket *probePacket = av_packet_alloc();
+        AVFrame *probeFrame = av_frame_alloc();
+        if (probePacket && probeFrame) {
+            while (av_read_frame(inputCtx, probePacket) >= 0) {
+                if (probePacket->stream_index != streamIndex) {
+                    av_packet_unref(probePacket);
+                    continue;
+                }
+                avcodec_send_packet(decoderCtx, probePacket);
+                av_packet_unref(probePacket);
+                if (avcodec_receive_frame(decoderCtx, probeFrame) == 0) {
+                    av_frame_unref(probeFrame);
+                    break;
+                }
+            }
+            av_seek_frame(inputCtx, streamIndex, 0, AVSEEK_FLAG_BACKWARD);
+            avcodec_flush_buffers(decoderCtx);
+        }
+        av_packet_free(&probePacket);
+        av_frame_free(&probeFrame);
+    }
+
     *outDecoderCtx = decoderCtx;
     return 0;
 }
@@ -85,7 +137,7 @@ int cffmpeg_open_decoder(AVFormatContext *inputCtx, int streamIndex, AVCodecCont
 // `options->sourceWidth/Height` (the display size crop coordinates are
 // authored against) — a corrective scale is inserted first to close that gap.
 static void cffmpeg_build_video_filter_description(
-    const CFFmpegTranscodeOptions *options, int decodedWidth, int decodedHeight,
+    const CFFmpegTranscodeOptions *options, int decodedWidth, int decodedHeight, int preserveAlpha,
     char *buffer, size_t bufferSize
 ) {
     char clause[256];
@@ -119,12 +171,12 @@ static void cffmpeg_build_video_filter_description(
                  colors, dither);
         strlcat(buffer, clause, bufferSize);
     } else {
-        strlcat(buffer, "format=yuv420p", bufferSize);
+        strlcat(buffer, preserveAlpha ? "format=yuva420p" : "format=yuv420p", bufferSize);
     }
 }
 
 static int cffmpeg_init_video_filter_graph(AVCodecContext *decoderCtx, AVRational inputTimeBase,
-                                            const CFFmpegTranscodeOptions *options,
+                                            const CFFmpegTranscodeOptions *options, int preserveAlpha,
                                             AVFilterGraph **outGraph, AVFilterContext **outSrc, AVFilterContext **outSink,
                                             char *errorBuffer, int errorBufferSize) {
     char args[512];
@@ -163,7 +215,7 @@ static int cffmpeg_init_video_filter_graph(AVCodecContext *decoderCtx, AVRationa
         return ret;
     }
 
-    cffmpeg_build_video_filter_description(options, decoderCtx->width, decoderCtx->height, filterDescription, sizeof(filterDescription));
+    cffmpeg_build_video_filter_description(options, decoderCtx->width, decoderCtx->height, preserveAlpha, filterDescription, sizeof(filterDescription));
 
     {
         FILE *debugLog = fopen("/tmp/mediaconverter-crop-debug.log", "a");
@@ -325,7 +377,7 @@ static int64_t cffmpeg_bitrate_for_quality(int width, int height, double fps, do
     return (int64_t)((double)width * (double)height * effectiveFps * bitsPerPixel);
 }
 
-static int cffmpeg_open_video_encoder(const CFFmpegTranscodeOptions *options, AVFormatContext *outputCtx,
+static int cffmpeg_open_video_encoder(const CFFmpegTranscodeOptions *options, int preserveAlpha, AVFormatContext *outputCtx,
                                        AVRational filterTimeBase, AVCodecContext **outEncoderCtx, AVStream **outStream,
                                        char *errorBuffer, int errorBufferSize) {
     const AVCodec *encoder = avcodec_find_encoder_by_name(options->videoCodecName);
@@ -355,7 +407,7 @@ static int cffmpeg_open_video_encoder(const CFFmpegTranscodeOptions *options, AV
     if (options->isGifTarget) {
         encoderCtx->pix_fmt = AV_PIX_FMT_PAL8;
     } else {
-        encoderCtx->pix_fmt = AV_PIX_FMT_YUV420P;
+        encoderCtx->pix_fmt = preserveAlpha ? AV_PIX_FMT_YUVA420P : AV_PIX_FMT_YUV420P;
         encoderCtx->bit_rate = cffmpeg_bitrate_for_quality(options->outputWidth, options->outputHeight, options->fps, options->quality);
         encoderCtx->gop_size = 60;
     }
@@ -637,8 +689,18 @@ int cffmpeg_transcode(
         if (ret < 0) { result = ret; goto cleanup; }
     }
 
+    // libvpx-vp9 is the only encoder in this pipeline that can carry an
+    // alpha channel (as a second, implicit vpx bitstream muxed into webm) —
+    // h264/hevc via videotoolbox and the gif palette path cannot, so alpha
+    // is only preserved when both the source has it and the target is vp9.
+    int preserveAlpha = 0;
+    if (!options->isGifTarget && strcmp(options->videoCodecName, "libvpx-vp9") == 0) {
+        const AVPixFmtDescriptor *sourcePixDesc = av_pix_fmt_desc_get(video.decoderCtx->pix_fmt);
+        preserveAlpha = sourcePixDesc && (sourcePixDesc->flags & AV_PIX_FMT_FLAG_ALPHA) ? 1 : 0;
+    }
+
     AVRational videoInputTimeBase = inputCtx->streams[video.inputStreamIndex]->time_base;
-    ret = cffmpeg_init_video_filter_graph(video.decoderCtx, videoInputTimeBase, options,
+    ret = cffmpeg_init_video_filter_graph(video.decoderCtx, videoInputTimeBase, options, preserveAlpha,
                                           &video.filterGraph, &video.bufferSrcCtx, &video.bufferSinkCtx,
                                           errorBuffer, errorBufferSize);
     if (ret < 0) { result = ret; goto cleanup; }
@@ -651,7 +713,7 @@ int cffmpeg_transcode(
     }
 
     // buffer/buffersink preserve the decoder's original time_base.
-    ret = cffmpeg_open_video_encoder(options, outputCtx, videoInputTimeBase, &video.encoderCtx, &video.outputStream,
+    ret = cffmpeg_open_video_encoder(options, preserveAlpha, outputCtx, videoInputTimeBase, &video.encoderCtx, &video.outputStream,
                                       errorBuffer, errorBufferSize);
     if (ret < 0) { result = ret; goto cleanup; }
 

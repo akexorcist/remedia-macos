@@ -26,10 +26,10 @@ struct ResultPlayerView: View {
                     if let mediaFile {
                         WebmLoopPlayerView(mediaFile: mediaFile, isPlaying: $isPlaying)
                     } else {
-                        Color.black
+                        Color.clear
                     }
                 case nil:
-                    Color.black
+                    Color.clear
                 }
             }
 
@@ -128,7 +128,7 @@ private struct GifPlayerView: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            Color.clear
             if let currentImage {
                 Image(decorative: currentImage, scale: 1, orientation: .up)
                     .resizable()
@@ -210,7 +210,7 @@ private struct WebmLoopPlayerView: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            Color.clear
             if let currentImage {
                 Image(decorative: currentImage, scale: 1, orientation: .up)
                     .resizable()

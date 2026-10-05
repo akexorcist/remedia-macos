@@ -14,7 +14,7 @@ struct PreviewPlayerView: View {
         VStack(spacing: 8) {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.black)
+                    .fill(Color.clear)
                 if isPlaying, let mediaFile = viewModel.mediaFile, Self.isNativeFormat(mediaFile.format) {
                     TrimmedAudioPreviewView(
                         url: mediaFile.url,
