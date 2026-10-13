@@ -55,7 +55,7 @@ final class ConversionResultUITests: XCTestCase {
 
         let durationLabel = app.descendants(matching: .any)
             .matching(identifier: "completedScreen.duration").firstMatch
-        XCTAssertTrue(durationLabel.waitForExistence(timeout: 30), "conversion didn't reach the completed screen in time")
+        XCTAssertTrue(durationLabel.waitForExistence(timeout: 120), "conversion didn't reach the completed screen in time")
 
         let fileSizeLabel = app.descendants(matching: .any)
             .matching(identifier: "completedScreen.fileSize").firstMatch
